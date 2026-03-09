@@ -29,48 +29,69 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Guardian News call ───────────────────────────────────────
+  // ── Currents API call ────────────────────────────────────────
   if (type === "news") {
-    const guardianKey = process.env.GUARDIAN_API_KEY;
-    if (!guardianKey) return res.status(500).json({ error: "GUARDIAN_API_KEY not set in environment variables" });
+    const currentsKey = process.env.CURRENTS_API_KEY;
+    if (!currentsKey) return res.status(500).json({ error: "CURRENTS_API_KEY not set" });
 
     const QUERIES = {
       "Notice Parsing & Document Abstraction":
-        "document automation OR loan processing OR OCR fintech",
+        "document automation loan processing fintech",
       "Covenant Tracking & Monitoring":
-        "loan covenant OR credit compliance OR financial monitoring automation",
+        "loan covenant compliance automation financial",
       "Cash Application & Fee Validation":
-        "payment automation OR loan reconciliation OR fintech payments",
+        "payment automation reconciliation fintech banking",
       "Trade Break Analysis & Exception Mgmt":
-        "trade settlement OR syndicated loan OR financial exception management",
+        "trade settlement syndicated loan exception management",
       "AI Governance & Implementation":
-        "AI governance OR responsible AI OR artificial intelligence banking regulation",
+        "AI governance banking regulation artificial intelligence financial services",
       "Workflow Integration & Modernization":
-        "loan operations technology OR fintech automation OR banking workflow",
+        "loan operations automation fintech banking workflow",
     };
 
-    const q = QUERIES[topic] || "AI financial services OR loan automation OR fintech";
+    const q = encodeURIComponent(QUERIES[topic] || "AI financial services loan automation fintech");
 
-    const url = `https://content.guardianapis.com/search?q=${encodeURIComponent(q)}&section=business|technology&order-by=newest&page-size=6&show-fields=headline,trailText,shortUrl&api-key=${guardianKey}`;
+    // Target only relevant financial/fintech domains
+    const domains = [
+      "reuters.com","ft.com","bloomberg.com","wsj.com",
+      "finextra.com","pymnts.com","americanbanker.com",
+      "risk.net","bankingtech.com","fintechfutures.com",
+      "theclearinghouse.org","lsta.org"
+    ].join(",");
+
+    const url = `https://api.currentsapi.services/v1/search?keywords=${q}&domains=${encodeURIComponent(domains)}&language=en&page_size=6&apiKey=${currentsKey}`;
 
     try {
       const r = await fetch(url);
       const data = await r.json();
 
-      if (data.response?.status !== "ok") {
-        return res.status(500).json({ error: "Guardian API error: " + JSON.stringify(data.response || data) });
+      if (data.status !== "ok") {
+        // Fallback: retry without domain restriction if no results
+        const fallbackUrl = `https://api.currentsapi.services/v1/search?keywords=${q}&language=en&page_size=6&apiKey=${currentsKey}`;
+        const r2 = await fetch(fallbackUrl);
+        const data2 = await r2.json();
+
+        if (data2.status !== "ok" || !data2.news?.length) {
+          return res.status(500).json({ error: "No relevant articles found: " + (data2.message || data.message) });
+        }
+
+        const articles = data2.news.slice(0, 4).map(a => ({
+          headline: a.title,
+          source: a.author || new URL(a.url).hostname.replace("www.",""),
+          url: a.url,
+          description: a.description || "",
+          publishedAt: a.published,
+        }));
+        return res.status(200).json({ articles });
       }
 
-      const articles = (data.response?.results || [])
-        .filter(a => a.fields?.headline || a.webTitle)
-        .slice(0, 4)
-        .map(a => ({
-          headline: a.fields?.headline || a.webTitle,
-          source: "The Guardian",
-          url: a.fields?.shortUrl || a.webUrl,
-          description: a.fields?.trailText || "",
-          publishedAt: a.webPublicationDate,
-        }));
+      const articles = (data.news || []).slice(0, 4).map(a => ({
+        headline: a.title,
+        source: a.author || new URL(a.url).hostname.replace("www.",""),
+        url: a.url,
+        description: a.description || "",
+        publishedAt: a.published,
+      }));
 
       return res.status(200).json({ articles });
     } catch (err) {
