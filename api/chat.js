@@ -103,7 +103,11 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
     }
 
     articles = articles.filter((a, i, s) => a.url && s.findIndex(b => b.url === a.url) === i).slice(0, 5);
-    if (!articles.length) return res.status(500).json({ error: "No articles found" });
+    if (!articles.length) {
+      const gdeltErr = gdeltRes.status === "rejected" ? gdeltRes.reason?.message : (gdeltRes.value?.error || "no results");
+      const googleErr = googleRes.status === "rejected" ? googleRes.reason?.message : "no results";
+      return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | Google: ${googleErr}` });
+    }
 
     const prompt = `You are a loan operations analyst preparing a panelist for a conference.
 
