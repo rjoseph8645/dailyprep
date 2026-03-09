@@ -77,10 +77,12 @@ async function askClaude(system, user) {
       }
     })
   });
-  if(!res.ok) throw new Error("Claude API error "+res.status);
+  if(!res.ok) throw new Error("HTTP error "+res.status);
   const data = await res.json();
+  if(data.debug) throw new Error("API debug: "+JSON.stringify(data.debug));
   if(data.error) throw new Error(data.error);
   const text = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+  if(!text) throw new Error("Empty response from Claude");
   return JSON.parse(text.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim());
 }
 
@@ -194,7 +196,9 @@ function NewsView({items, onRefresh, loading}){
           <span style={{fontSize:11,color:"#999"}}>📰 {item.source}</span>
           {item.publishedAt && <span style={{fontSize:11,color:"#bbb"}}>· {timeAgo(item.publishedAt)}</span>}
         </div>
-        {item.description && <p style={{...ps,marginBottom:10}}>{item.description}</p>}
+        {(item.summary || item.description) && (
+          <p style={{...ps, marginBottom:10}}>{item.summary || item.description}</p>
+        )}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:8}}>
           <div style={{background:"#f0f7ff",borderRadius:8,padding:"7px 10px",borderLeft:"3px solid #0f3460",flex:1}}>
             <span style={{fontSize:11,fontWeight:700,color:"#0f3460"}}>Panel relevance: </span>
@@ -230,7 +234,7 @@ function App(){
     try{
       const d = await askClaude(BRIEF_SYS,`Topic: ${t.label}\nWeek: ${week} of 8\nDay: ${dayName()}\nDate: ${dateStr()}`);
       setBrief({...d,icon:t.icon,date:dateStr()});
-    }catch(e){ setErrBrief("Failed to load brief. Check your Anthropic API key in Vercel."); }
+    }catch(e){ setErrBrief("Error: " + e.message); }
     setLoadBrief(false);
   }
 
