@@ -30,39 +30,133 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Claude news intelligence ─────────────────────────────────
+  // ── Multi-source news (GDELT + Google News + Akin RSS) ───────
   if (type === "news") {
-    const newsSystem = `You are a senior market intelligence analyst specialising in syndicated loan operations, financial services technology, and AI automation in banking.
+    const TOPIC_QUERIES = {
+      "Notice Parsing & Document Abstraction":
+        '"document automation" OR "loan processing" OR "OCR" OR "document abstraction" fintech',
+      "Covenant Tracking & Monitoring":
+        '"covenant monitoring" OR "loan compliance" OR "credit agreement" AI banking',
+      "Cash Application & Fee Validation":
+        '"payment automation" OR "loan reconciliation" OR "fee validation" banking fintech',
+      "Trade Break Analysis & Exception Mgmt":
+        '"trade settlement" OR "syndicated loan" OR "trade break" OR "exception management" finance',
+      "AI Governance & Implementation":
+        '"AI governance" OR "responsible AI" OR "AI regulation" banking "financial services"',
+      "Workflow Integration & Modernization":
+        '"loan operations" OR "workflow automation" OR "LoanIQ" OR "fintech integration" banking',
+    };
 
-Generate 4 highly relevant market intelligence briefings for a panelist preparing for an AI in loan operations conference. These must reflect real trends, real companies, real regulatory developments, and real market dynamics as of early 2026.
+    const GOOGLE_QUERIES = {
+      "Notice Parsing & Document Abstraction": "loan document automation OCR fintech banking",
+      "Covenant Tracking & Monitoring": "loan covenant monitoring AI compliance banking",
+      "Cash Application & Fee Validation": "payment automation reconciliation fintech banking",
+      "Trade Break Analysis & Exception Mgmt": "trade settlement syndicated loan automation fintech",
+      "AI Governance & Implementation": "AI governance banking regulation financial services 2026",
+      "Workflow Integration & Modernization": "loan operations automation fintech banking workflow",
+    };
 
-Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
-{
-  "pulse": "one sentence on the current market mood for this topic in financial services",
-  "items": [
-    {
-      "headline": "realistic, specific news headline — reference real companies, regulations, or technologies",
-      "source": "one of: Reuters | Financial Times | Bloomberg | American Banker | Finextra | Risk.net | PYMNTS | The Clearing House | Wall Street Journal",
-      "description": "2 sentences: what is happening and why it matters specifically to loan operations teams",
-      "relevance": "one phrase directly connecting this to AI in loan ops",
-      "tag": "one of: AI & Automation | Market Movement | Regulation | Technology | Operations"
+    // Target domains for GDELT
+    const DOMAINS = [
+      "reuters.com", "ft.com", "bloomberg.com", "wsj.com",
+      "americanbanker.com", "finextra.com", "pymnts.com",
+      "risk.net", "bankingtech.com", "fintechfutures.com",
+      "lsta.org", "akingump.com"
+    ];
+
+    const gdeltQuery = encodeURIComponent(TOPIC_QUERIES[topic] || '"AI financial services" OR "loan automation"');
+    const domainFilter = DOMAINS.map(d => `domainis:${d}`).join(" OR ");
+    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gdeltQuery} (${encodeURIComponent(domainFilter)})&mode=artlist&maxrecords=6&format=json&timespan=7d&sourcelang=english`;
+
+    const googleQuery = encodeURIComponent(GOOGLE_QUERIES[topic] || "AI financial services loan automation");
+    const googleUrl = `https://news.google.com/rss/search?q=${googleQuery}&hl=en-US&gl=US&ceid=US:en`;
+
+    const akinUrl = `https://www.akingump.com/en/rss?type=1062568`; // Finance & restructuring feed
+
+    let articles = [];
+
+    // Helper: parse Google RSS
+    function parseGoogleRSS(xml) {
+      const items = [];
+      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      let m;
+      while ((m = itemRegex.exec(xml)) !== null && items.length < 3) {
+        const i = m[1];
+        const title  = (/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(i)?.[1] || /<title>([\s\S]*?)<\/title>/.exec(i)?.[1] || "").trim();
+        const link   = (/<link>([\s\S]*?)<\/link>/.exec(i)?.[1] || "").trim();
+        const pubDate= (/<pubDate>([\s\S]*?)<\/pubDate>/.exec(i)?.[1] || "").trim();
+        const source = (/<source[^>]*>([\s\S]*?)<\/source>/.exec(i)?.[1] || "Google News").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
+        const desc   = (/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/.exec(i)?.[1] || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
+        if (title && link) items.push({ headline: title, source, url: link, description: desc, publishedAt: pubDate });
+      }
+      return items;
     }
-  ]
-}
 
-Rules:
-- Headlines must be specific — reference real vendors, regulators, banks, or technologies (e.g. LoanIQ, ACBS, SOFR, OCC, Fed, ISDA, Broadridge, ION Group, Finastra)
-- No generic headlines like 'Banks explore AI' — be concrete and credible
-- All 4 items must be directly relevant to the panel topic
-- Reflect the market reality of Q1 2026`;
+    // Helper: parse Akin RSS
+    function parseAkinRSS(xml) {
+      const items = [];
+      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      let m;
+      while ((m = itemRegex.exec(xml)) !== null && items.length < 2) {
+        const i = m[1];
+        const title  = (/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(i)?.[1] || /<title>([\s\S]*?)<\/title>/.exec(i)?.[1] || "").trim();
+        const link   = (/<link>([\s\S]*?)<\/link>/.exec(i)?.[1] || "").trim();
+        const pubDate= (/<pubDate>([\s\S]*?)<\/pubDate>/.exec(i)?.[1] || "").trim();
+        const desc   = (/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/.exec(i)?.[1] || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
+        if (title && link) items.push({ headline: title, source: "Akin", url: link, description: desc, publishedAt: pubDate });
+      }
+      return items;
+    }
 
-    const userPrompt = `Panel topic: "${topic}"
-Date: ${new Date().toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" })}
+    // Fetch all sources in parallel
+    const [gdeltRes, googleRes, akinRes] = await Promise.allSettled([
+      fetch(gdeltUrl).then(r => r.json()),
+      fetch(googleUrl).then(r => r.text()),
+      fetch(akinUrl).then(r => r.text()),
+    ]);
 
-Generate 4 market intelligence briefings that a panelist speaking on this topic would find genuinely useful and credible. Focus on: vendor moves, regulatory changes, bank implementations, market adoption stats, and operational challenges.`;
+    // GDELT articles
+    if (gdeltRes.status === "fulfilled" && gdeltRes.value?.articles?.length) {
+      const gdeltArticles = gdeltRes.value.articles.slice(0, 4).map(a => ({
+        headline: a.title,
+        source: a.domain || "News",
+        url: a.url,
+        description: "",
+        publishedAt: a.seendate,
+      }));
+      articles.push(...gdeltArticles);
+    }
+
+    // Google News RSS fallback/supplement
+    if (googleRes.status === "fulfilled" && articles.length < 4) {
+      const googleArticles = parseGoogleRSS(googleRes.value);
+      articles.push(...googleArticles.slice(0, 4 - articles.length));
+    }
+
+    // Akin supplement
+    if (akinRes.status === "fulfilled" && articles.length < 5) {
+      const akinArticles = parseAkinRSS(akinRes.value);
+      articles.push(...akinArticles.slice(0, 1));
+    }
+
+    // Deduplicate by URL
+    articles = articles.filter((a, i, self) => a.url && self.findIndex(b => b.url === a.url) === i).slice(0, 5);
+
+    if (!articles.length) return res.status(500).json({ error: "No articles found from any source" });
+
+    // Annotate with Claude
+    const annotatePrompt = `You are a loan operations analyst. Annotate these news articles for a panelist at an AI in loan operations conference.
+
+Topic: "${topic}"
+
+Articles:
+${articles.map((a, i) => `${i + 1}. ${a.headline}\n${a.description || "(no description)"}`).join("\n\n")}
+
+Return ONLY a valid JSON array with exactly ${articles.length} objects in the same order — no markdown, no backticks:
+[{"relevance":"one phrase connecting to AI in loan ops panel","tag":"one of: AI & Automation | Market Movement | Regulation | Technology | Operations"}]`;
 
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const cr = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -71,24 +165,28 @@ Generate 4 market intelligence briefings that a panelist speaking on this topic 
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: newsSystem,
-          messages: [{ role: "user", content: userPrompt }],
+          max_tokens: 600,
+          messages: [{ role: "user", content: annotatePrompt }],
         }),
       });
 
-      const data = await r.json();
-      if (data.error) return res.status(500).json({ error: data.error.message });
+      const cd = await cr.json();
+      const ctext = cd.content?.filter(b => b.type === "text").map(b => b.text).join("").trim();
+      const annotations = JSON.parse(ctext.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim());
 
-      const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("").trim();
-      if (!text) return res.status(500).json({ error: "No response from Claude" });
+      const annotated = articles.map((a, i) => ({
+        ...a,
+        relevance: annotations[i]?.relevance || "Relevant to loan ops automation",
+        tag: annotations[i]?.tag || "Technology",
+      }));
 
-      const clean = text.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim();
-      const parsed = JSON.parse(clean);
-
-      return res.status(200).json({ articles: parsed.items, pulse: parsed.pulse });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
+      return res.status(200).json({ articles: annotated, pulse: null });
+    } catch {
+      // Return unannotated if Claude annotation fails
+      return res.status(200).json({
+        articles: articles.map(a => ({ ...a, relevance: "Relevant to loan ops", tag: "Technology" })),
+        pulse: null
+      });
     }
   }
 
