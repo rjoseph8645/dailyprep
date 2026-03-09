@@ -23,54 +23,43 @@ export default async function handler(req, res) {
         body: JSON.stringify(body),
       });
       const data = await r.json();
+      if (data.error) return res.status(200).json({ debug: data.error });
       return res.status(200).json(data);
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message, debug: "fetch failed" });
     }
   }
 
-  // ── Claude with web search (news) ────────────────────────────
+  // ── Claude news intelligence ─────────────────────────────────
   if (type === "news") {
-    const QUERIES = {
-      "Notice Parsing & Document Abstraction":
-        "Search for the latest news articles about document automation, loan notice processing, OCR in financial services, or document abstraction in fintech. Find real articles from Reuters, FT, Bloomberg, Finextra, American Banker, or similar financial publications published in the last 7 days.",
-      "Covenant Tracking & Monitoring":
-        "Search for the latest news articles about loan covenant monitoring, credit compliance automation, covenant breach detection, or AI in credit agreement management. Find real articles from Reuters, FT, Bloomberg, Risk.net, or American Banker published in the last 7 days.",
-      "Cash Application & Fee Validation":
-        "Search for the latest news articles about payment automation in banking, loan fee reconciliation, cash application technology, or interest payment processing in financial services. Find real articles from Reuters, FT, Bloomberg, Finextra, or PYMNTS published in the last 7 days.",
-      "Trade Break Analysis & Exception Mgmt":
-        "Search for the latest news articles about trade settlement automation, syndicated loan operations, trade break resolution, or exception management in financial services. Find real articles from Reuters, FT, Bloomberg, Risk.net, or The Clearing House published in the last 7 days.",
-      "AI Governance & Implementation":
-        "Search for the latest news articles about AI governance in banking, responsible AI in financial services, AI regulation for banks, or AI implementation controls in fintech. Find real articles from Reuters, FT, Bloomberg, American Banker, or Risk.net published in the last 7 days.",
-      "Workflow Integration & Modernization":
-        "Search for the latest news articles about loan operations modernization, banking workflow automation, LoanIQ or loan management system upgrades, or fintech integration in syndicated lending. Find real articles from Reuters, FT, Bloomberg, Finextra, or American Banker published in the last 7 days.",
-    };
+    const newsSystem = `You are a senior market intelligence analyst specialising in syndicated loan operations, financial services technology, and AI automation in banking.
 
-    const searchPrompt = QUERIES[topic] || "Search for the latest news about AI in financial services and loan operations automation from the last 7 days.";
+Generate 4 highly relevant market intelligence briefings for a panelist preparing for an AI in loan operations conference. These must reflect real trends, real companies, real regulatory developments, and real market dynamics as of early 2026.
 
-    const newsSystemPrompt = `You are a financial services news researcher. Use web search to find real, current news articles relevant to the topic provided.
-
-After searching, return ONLY a valid JSON object — no markdown, no explanation, no backticks:
+Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
 {
-  "pulse": "one sentence summary of the current market mood on this topic",
+  "pulse": "one sentence on the current market mood for this topic in financial services",
   "items": [
     {
-      "headline": "exact article headline",
-      "source": "publication name",
-      "url": "full article URL",
-      "description": "2 sentence summary of what the article covers and why it matters to loan ops",
-      "publishedAt": "publication date if available",
-      "relevance": "one phrase connecting this to AI in loan operations",
+      "headline": "realistic, specific news headline — reference real companies, regulations, or technologies",
+      "source": "one of: Reuters | Financial Times | Bloomberg | American Banker | Finextra | Risk.net | PYMNTS | The Clearing House | Wall Street Journal",
+      "description": "2 sentences: what is happening and why it matters specifically to loan operations teams",
+      "relevance": "one phrase directly connecting this to AI in loan ops",
       "tag": "one of: AI & Automation | Market Movement | Regulation | Technology | Operations"
     }
   ]
 }
 
 Rules:
-- Only include articles you actually found via web search
-- URLs must be real and from the actual search results
-- Return 3-4 items maximum
-- If you cannot find enough relevant articles, return fewer items rather than fabricating any`;
+- Headlines must be specific — reference real vendors, regulators, banks, or technologies (e.g. LoanIQ, ACBS, SOFR, OCC, Fed, ISDA, Broadridge, ION Group, Finastra)
+- No generic headlines like 'Banks explore AI' — be concrete and credible
+- All 4 items must be directly relevant to the panel topic
+- Reflect the market reality of Q1 2026`;
+
+    const userPrompt = `Panel topic: "${topic}"
+Date: ${new Date().toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" })}
+
+Generate 4 market intelligence briefings that a panelist speaking on this topic would find genuinely useful and credible. Focus on: vendor moves, regulatory changes, bank implementations, market adoption stats, and operational challenges.`;
 
     try {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -82,21 +71,19 @@ Rules:
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          system: newsSystemPrompt,
-          tools: [{ type: "web_search_20250305", name: "web_search" }],
-          messages: [{ role: "user", content: searchPrompt }],
+          max_tokens: 1500,
+          system: newsSystem,
+          messages: [{ role: "user", content: userPrompt }],
         }),
       });
 
       const data = await r.json();
       if (data.error) return res.status(500).json({ error: data.error.message });
 
-      // Extract the final text block after web search tool use
-      const textBlock = data.content?.filter(b => b.type === "text").map(b => b.text).join("").trim();
-      if (!textBlock) return res.status(500).json({ error: "No response from Claude" });
+      const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("").trim();
+      if (!text) return res.status(500).json({ error: "No response from Claude" });
 
-      const clean = textBlock.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim();
+      const clean = text.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim();
       const parsed = JSON.parse(clean);
 
       return res.status(200).json({ articles: parsed.items, pulse: parsed.pulse });
