@@ -37,12 +37,12 @@ export default async function handler(req, res) {
 Themes: loan notice parsing, covenant tracking, cash application, exception management, document abstraction, interest and fee validation, trade break analysis, workflow integration, governance, LoanIQ, ACBS, WSO, NELI, STP.`;
 
       const GDELT_Q = {
-        "Notice Parsing & Document Abstraction": '"document automation" OR "loan notice" OR "OCR" fintech banking',
-        "Covenant Tracking & Monitoring": '"covenant monitoring" OR "loan compliance" OR "credit agreement" AI banking',
-        "Cash Application & Fee Validation": '"cash application" OR "payment automation" OR "fee validation" OR "loan reconciliation" banking',
-        "Trade Break Analysis & Exception Mgmt": '"trade break" OR "trade settlement" OR "syndicated loan" OR "exception management" finance',
-        "AI Governance & Implementation": '"AI governance" OR "responsible AI" OR "model risk" banking "financial services"',
-        "Workflow Integration & Modernization": '"loan operations" OR "workflow automation" OR "LoanIQ" OR "STP" banking',
+        "Notice Parsing & Document Abstraction": '("document automation" OR "loan notice" OR "OCR") fintech banking',
+        "Covenant Tracking & Monitoring": '("covenant monitoring" OR "loan compliance" OR "credit agreement") AI banking',
+        "Cash Application & Fee Validation": '("cash application" OR "payment automation" OR "fee validation" OR "loan reconciliation") banking',
+        "Trade Break Analysis & Exception Mgmt": '("trade break" OR "trade settlement" OR "syndicated loan" OR "exception management") finance',
+        "AI Governance & Implementation": '("AI governance" OR "responsible AI" OR "model risk") banking',
+        "Workflow Integration & Modernization": '("loan operations" OR "workflow automation" OR "STP") banking',
       };
 
       const GOOGLE_Q = {
@@ -83,39 +83,48 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
       }
 
       let articles = [];
-      const rssUrl = `https://feeds.finextra.com/finextra-news.xml`;
+      // Reuters and FT block server fetches; use feeds known to work from Vercel
+      const RSS_FEEDS = [
+        { url: "https://www.pymnts.com/feed/",                      source: "PYMNTS"   },
+        { url: "https://fintechmagazine.com/rss",                   source: "Fintech Magazine" },
+        { url: "https://www.bankingtech.com/feed/",                 source: "Banking Tech"     },
+        { url: "https://www.fintechfutures.com/feed/",              source: "Fintech Futures"  },
+      ];
+      // Pick first two to stay within Vercel timeout
+      const [feed1Url, feed2Url] = RSS_FEEDS.map(f => f.url);
+      const [feed1Src, feed2Src] = RSS_FEEDS.map(f => f.source);
 
-      const [gdeltRes, rssRes, akinRes] = await Promise.allSettled([
+      const [gdeltRes, rss1Res, rss2Res, akinRes] = await Promise.allSettled([
         fetch(gdeltUrl).then(async r => {
           const text = await r.text();
-          // GDELT returns plain-text errors — guard before JSON.parse
-          if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+          if (!text.trim().startsWith("{") && !text.trim().startsWith("["))
             throw new Error("GDELT non-JSON: " + text.slice(0, 120));
-          }
           return JSON.parse(text);
         }),
-        fetch(rssUrl).then(r => r.text()),
+        fetch(feed1Url).then(r => r.text()),
+        fetch(feed2Url).then(r => r.text()),
         fetch(akinUrl).then(r => r.text()),
       ]);
 
       if (gdeltRes.status === "fulfilled" && gdeltRes.value?.articles?.length) {
-        articles.push(...gdeltRes.value.articles.slice(0, 4).map(a => ({
+        articles.push(...gdeltRes.value.articles.slice(0, 3).map(a => ({
           headline: a.title, source: a.domain || "News",
           url: a.url, description: "", publishedAt: a.seendate,
         })));
       }
-      if (rssRes.status === "fulfilled" && articles.length < 4) {
-        articles.push(...parseRSS(rssRes.value, "Finextra", 4 - articles.length));
-      }
-      if (akinRes.status === "fulfilled" && articles.length < 5) {
+      if (rss1Res.status === "fulfilled" && articles.length < 4)
+        articles.push(...parseRSS(rss1Res.value, feed1Src, 4 - articles.length));
+      if (rss2Res.status === "fulfilled" && articles.length < 4)
+        articles.push(...parseRSS(rss2Res.value, feed2Src, 4 - articles.length));
+      if (akinRes.status === "fulfilled" && articles.length < 5)
         articles.push(...parseRSS(akinRes.value, "Akin", 1));
-      }
 
       articles = articles.filter((a, i, s) => a.url && s.findIndex(b => b.url === a.url) === i).slice(0, 5);
       if (!articles.length) {
         const gdeltErr = gdeltRes.status === "rejected" ? gdeltRes.reason?.message : (gdeltRes.value?.error || "no results");
-        const rssErr   = rssRes.status   === "rejected" ? rssRes.reason?.message   : "no results";
-        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | RSS: ${rssErr}` });
+        const r1Err = rss1Res.status === "rejected" ? rss1Res.reason?.message : "no results";
+        const r2Err = rss2Res.status === "rejected" ? rss2Res.reason?.message : "no results";
+        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | ${feed1Src}: ${r1Err} | ${feed2Src}: ${r2Err}` });
       }
 
       const prompt = `You are a loan operations analyst preparing a panelist for a conference.
