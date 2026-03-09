@@ -145,7 +145,7 @@ export default async function handler(req, res) {
     if (!articles.length) return res.status(500).json({ error: "No articles found from any source" });
 
     // Annotate with Claude
-    const annotatePrompt = `You are a loan operations analyst. Annotate these news articles for a panelist at an AI in loan operations conference.
+    const annotatePrompt = `You are a loan operations analyst preparing a panelist for an AI in loan operations conference.
 
 Topic: "${topic}"
 
@@ -153,7 +153,11 @@ Articles:
 ${articles.map((a, i) => `${i + 1}. ${a.headline}\n${a.description || "(no description)"}`).join("\n\n")}
 
 Return ONLY a valid JSON array with exactly ${articles.length} objects in the same order — no markdown, no backticks:
-[{"relevance":"one phrase connecting to AI in loan ops panel","tag":"one of: AI & Automation | Market Movement | Regulation | Technology | Operations"}]`;
+[{
+  "summary": "A clear, succinct summary of the article. Let the content determine the length — could be one sentence or a short paragraph. No filler words. No repetition. Just what the article says and why it matters to loan operations.",
+  "relevance": "one short phrase connecting this to the panel topic",
+  "tag": "one of: AI & Automation | Market Movement | Regulation | Technology | Operations"
+}]`;
 
     try {
       const cr = await fetch("https://api.anthropic.com/v1/messages", {
@@ -176,6 +180,7 @@ Return ONLY a valid JSON array with exactly ${articles.length} objects in the sa
 
       const annotated = articles.map((a, i) => ({
         ...a,
+        summary: annotations[i]?.summary || a.description || "",
         relevance: annotations[i]?.relevance || "Relevant to loan ops automation",
         tag: annotations[i]?.tag || "Technology",
       }));
