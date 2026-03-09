@@ -29,43 +29,49 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── NewsAPI call ─────────────────────────────────────────────
+  // ── Guardian News call ───────────────────────────────────────
   if (type === "news") {
-    const newsKey = process.env.NEWS_API_KEY;
-    if (!newsKey) return res.status(500).json({ error: "NEWS_API_KEY not set" });
+    const guardianKey = process.env.GUARDIAN_API_KEY;
+    if (!guardianKey) return res.status(500).json({ error: "GUARDIAN_API_KEY not set" });
 
     const QUERIES = {
       "Notice Parsing & Document Abstraction":
-        "loan document automation OR OCR financial services OR document abstraction fintech",
+        "document automation OR loan processing OR OCR fintech",
       "Covenant Tracking & Monitoring":
-        "covenant monitoring automation OR loan compliance AI OR credit agreement tracking",
+        "loan covenant OR credit compliance OR financial monitoring automation",
       "Cash Application & Fee Validation":
-        "payment automation financial services OR loan reconciliation OR fee validation fintech",
+        "payment automation OR loan reconciliation OR fintech payments",
       "Trade Break Analysis & Exception Mgmt":
-        "trade settlement automation OR syndicated loan exception OR trade break fintech",
+        "trade settlement OR syndicated loan OR financial exception management",
       "AI Governance & Implementation":
-        "AI governance financial services OR responsible AI banking OR AI controls fintech",
+        "AI governance OR responsible AI OR artificial intelligence banking regulation",
       "Workflow Integration & Modernization":
-        "loan operations automation OR LoanIQ OR syndicated loan technology OR fintech workflow",
+        "loan operations technology OR fintech automation OR banking workflow",
     };
 
-    const q = QUERIES[topic] || "AI financial services OR loan operations automation OR fintech";
-    const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&sortBy=publishedAt&pageSize=6&language=en&apiKey=${newsKey}`;
+    const q = QUERIES[topic] || "AI financial services OR loan automation OR fintech";
+
+    const url = `https://content.guardianapis.com/search?q=${encodeURIComponent(q)}&section=business|technology&order-by=newest&page-size=6&show-fields=headline,trailText,shortUrl&api-key=${guardianKey}`;
 
     try {
       const r = await fetch(url);
       const data = await r.json();
-      if (data.status !== "ok") return res.status(500).json({ error: data.message });
-      const articles = (data.articles || [])
-        .filter(a => a.title && a.url && !a.title.includes("[Removed]"))
+
+      if (data.response?.status !== "ok") {
+        return res.status(500).json({ error: "Guardian API error: " + JSON.stringify(data) });
+      }
+
+      const articles = (data.response?.results || [])
+        .filter(a => a.fields?.headline || a.webTitle)
         .slice(0, 4)
         .map(a => ({
-          headline: a.title,
-          source: a.source?.name || "Unknown",
-          url: a.url,
-          description: a.description || "",
-          publishedAt: a.publishedAt,
+          headline: a.fields?.headline || a.webTitle,
+          source: "The Guardian",
+          url: a.fields?.shortUrl || a.webUrl,
+          description: a.fields?.trailText || "",
+          publishedAt: a.webPublicationDate,
         }));
+
       return res.status(200).json({ articles });
     } catch (err) {
       return res.status(500).json({ error: err.message });
