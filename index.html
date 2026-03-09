@@ -237,15 +237,16 @@ function App(){
   async function loadNewsFn(t){
     setLoadNews(true); setErrNews(null); setNewsItems(null);
     try{
-      const articles = await fetchNews(t.label);
-      if(!articles||articles.length===0) throw new Error("No articles found");
-      const annotations = await annotateNews(articles, t.label);
-      const merged = articles.map((a,i)=>({
-        ...a,
-        relevance: annotations[i]?.relevance || "Relevant to loan ops automation",
-        tag: annotations[i]?.tag || "Technology",
-      }));
-      setNewsItems(merged);
+      const res = await fetch("/api/chat", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ type:"news", topic: t.label })
+      });
+      if(!res.ok) throw new Error("API error "+res.status);
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      if(!data.articles?.length) throw new Error("No articles found");
+      setNewsItems({ items: data.articles, pulse: data.pulse });
     }catch(e){ setErrNews("Could not load live news: "+e.message); }
     setLoadNews(false);
   }
@@ -345,7 +346,18 @@ function App(){
           {tab==="news"&&<div>
             {loadNews&&<Spinner label="Fetching live news…"/>}
             {errNews&&<div style={{background:"#fff0f0",border:"1px solid #ffcccc",borderRadius:10,padding:16,color:"#c0392b",fontSize:13,marginBottom:12}}>{errNews}</div>}
-            {newsItems&&!loadNews&&<NewsView items={newsItems} loading={loadNews} onRefresh={()=>loadNewsFn(topic)}/>}
+          {newsItems&&!loadNews&&<div>
+            {newsItems.pulse && (
+              <div style={{background:"linear-gradient(135deg,#0f3460,#1a1a2e)",color:"white",borderRadius:12,padding:16,marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+                <div style={{fontSize:26}}>📡</div>
+                <div>
+                  <div style={{fontSize:11,opacity:0.6,letterSpacing:1,marginBottom:4}}>MARKET PULSE · {new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                  <div style={{fontSize:13,lineHeight:1.6,opacity:0.9}}>{newsItems.pulse}</div>
+                </div>
+              </div>
+            )}
+            <NewsView items={newsItems.items} loading={loadNews} onRefresh={()=>loadNewsFn(topic)}/>
+          </div>}
           </div>}
         </div>}
 
