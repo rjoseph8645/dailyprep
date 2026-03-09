@@ -1,199 +1,408 @@
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smarter Ops Digest</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',sans-serif;background:#f5f6fa;color:#1a1a2e;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+const TOPICS = [
+  { id:"notice",   label:"Notice Parsing & Document Abstraction", icon:"📄" },
+  { id:"covenant", label:"Covenant Tracking & Monitoring",        icon:"📋" },
+  { id:"cash",     label:"Cash Application & Fee Validation",     icon:"💰" },
+  { id:"trade",    label:"Trade Break Analysis & Exception Mgmt", icon:"⚠️" },
+  { id:"gov",      label:"AI Governance & Implementation",        icon:"🏛️" },
+  { id:"int",      label:"Workflow Integration & Modernization",  icon:"🔗" },
+];
 
-  const { type, body, topic } = req.body;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
+const WEEK_PLAN = [
+  {week:1,focus:"Foundations",      desc:"Core AI concepts in loan ops context"},
+  {week:2,focus:"Notice Parsing",   desc:"Document abstraction & structured data extraction"},
+  {week:3,focus:"Covenant Tracking",desc:"Automated monitoring & breach detection"},
+  {week:4,focus:"Cash Application", desc:"Interest/fee validation & reconciliation"},
+  {week:5,focus:"Trade Breaks",     desc:"Exception management & resolution workflows"},
+  {week:6,focus:"Governance",       desc:"Controls, auditability & risk management"},
+  {week:7,focus:"Integration",      desc:"LoanIQ, ACBS & system interoperability"},
+  {week:8,focus:"Panel Prep",       desc:"Talking points, Q&A readiness & key stats"},
+];
 
-  // ── Claude call (brief) ──────────────────────────────────────
-  if (type === "claude") {
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json();
-      if (data.error) return res.status(200).json({ debug: data.error });
-      return res.status(200).json(data);
-    } catch (err) {
-      return res.status(500).json({ error: err.message, debug: "fetch failed" });
-    }
-  }
+const TAG_COLORS = {
+  "AI & Automation":"#7c3aed","Market Movement":"#0f3460",
+  "Regulation":"#d97706","Technology":"#0891b2","Operations":"#059669",
+};
 
-  // ── Multi-source news (GDELT + Google News + Akin RSS) ───────
-  if (type === "news") {
-    const TOPIC_QUERIES = {
-      "Notice Parsing & Document Abstraction":
-        '"document automation" OR "loan processing" OR "OCR" OR "document abstraction" fintech',
-      "Covenant Tracking & Monitoring":
-        '"covenant monitoring" OR "loan compliance" OR "credit agreement" AI banking',
-      "Cash Application & Fee Validation":
-        '"payment automation" OR "loan reconciliation" OR "fee validation" banking fintech',
-      "Trade Break Analysis & Exception Mgmt":
-        '"trade settlement" OR "syndicated loan" OR "trade break" OR "exception management" finance',
-      "AI Governance & Implementation":
-        '"AI governance" OR "responsible AI" OR "AI regulation" banking "financial services"',
-      "Workflow Integration & Modernization":
-        '"loan operations" OR "workflow automation" OR "LoanIQ" OR "fintech integration" banking',
-    };
-
-    const GOOGLE_QUERIES = {
-      "Notice Parsing & Document Abstraction": "loan document automation OCR fintech banking",
-      "Covenant Tracking & Monitoring": "loan covenant monitoring AI compliance banking",
-      "Cash Application & Fee Validation": "payment automation reconciliation fintech banking",
-      "Trade Break Analysis & Exception Mgmt": "trade settlement syndicated loan automation fintech",
-      "AI Governance & Implementation": "AI governance banking regulation financial services 2026",
-      "Workflow Integration & Modernization": "loan operations automation fintech banking workflow",
-    };
-
-    // Target domains for GDELT
-    const DOMAINS = [
-      "reuters.com", "ft.com", "bloomberg.com", "wsj.com",
-      "americanbanker.com", "finextra.com", "pymnts.com",
-      "risk.net", "bankingtech.com", "fintechfutures.com",
-      "lsta.org", "akingump.com"
-    ];
-
-    const gdeltQuery = encodeURIComponent(TOPIC_QUERIES[topic] || '"AI financial services" OR "loan automation"');
-    const domainFilter = DOMAINS.map(d => `domainis:${d}`).join(" OR ");
-    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gdeltQuery} (${encodeURIComponent(domainFilter)})&mode=artlist&maxrecords=6&format=json&timespan=7d&sourcelang=english`;
-
-    const googleQuery = encodeURIComponent(GOOGLE_QUERIES[topic] || "AI financial services loan automation");
-    const googleUrl = `https://news.google.com/rss/search?q=${googleQuery}&hl=en-US&gl=US&ceid=US:en`;
-
-    const akinUrl = `https://www.akingump.com/en/rss?type=1062568`; // Finance & restructuring feed
-
-    let articles = [];
-
-    // Helper: parse Google RSS
-    function parseGoogleRSS(xml) {
-      const items = [];
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      let m;
-      while ((m = itemRegex.exec(xml)) !== null && items.length < 3) {
-        const i = m[1];
-        const title  = (/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(i)?.[1] || /<title>([\s\S]*?)<\/title>/.exec(i)?.[1] || "").trim();
-        const link   = (/<link>([\s\S]*?)<\/link>/.exec(i)?.[1] || "").trim();
-        const pubDate= (/<pubDate>([\s\S]*?)<\/pubDate>/.exec(i)?.[1] || "").trim();
-        const source = (/<source[^>]*>([\s\S]*?)<\/source>/.exec(i)?.[1] || "Google News").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
-        const desc   = (/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/.exec(i)?.[1] || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
-        if (title && link) items.push({ headline: title, source, url: link, description: desc, publishedAt: pubDate });
-      }
-      return items;
-    }
-
-    // Helper: parse Akin RSS
-    function parseAkinRSS(xml) {
-      const items = [];
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      let m;
-      while ((m = itemRegex.exec(xml)) !== null && items.length < 2) {
-        const i = m[1];
-        const title  = (/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(i)?.[1] || /<title>([\s\S]*?)<\/title>/.exec(i)?.[1] || "").trim();
-        const link   = (/<link>([\s\S]*?)<\/link>/.exec(i)?.[1] || "").trim();
-        const pubDate= (/<pubDate>([\s\S]*?)<\/pubDate>/.exec(i)?.[1] || "").trim();
-        const desc   = (/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/.exec(i)?.[1] || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
-        if (title && link) items.push({ headline: title, source: "Akin", url: link, description: desc, publishedAt: pubDate });
-      }
-      return items;
-    }
-
-    // Fetch all sources in parallel
-    const [gdeltRes, googleRes, akinRes] = await Promise.allSettled([
-      fetch(gdeltUrl).then(r => r.json()),
-      fetch(googleUrl).then(r => r.text()),
-      fetch(akinUrl).then(r => r.text()),
-    ]);
-
-    // GDELT articles
-    if (gdeltRes.status === "fulfilled" && gdeltRes.value?.articles?.length) {
-      const gdeltArticles = gdeltRes.value.articles.slice(0, 4).map(a => ({
-        headline: a.title,
-        source: a.domain || "News",
-        url: a.url,
-        description: "",
-        publishedAt: a.seendate,
-      }));
-      articles.push(...gdeltArticles);
-    }
-
-    // Google News RSS fallback/supplement
-    if (googleRes.status === "fulfilled" && articles.length < 4) {
-      const googleArticles = parseGoogleRSS(googleRes.value);
-      articles.push(...googleArticles.slice(0, 4 - articles.length));
-    }
-
-    // Akin supplement
-    if (akinRes.status === "fulfilled" && articles.length < 5) {
-      const akinArticles = parseAkinRSS(akinRes.value);
-      articles.push(...akinArticles.slice(0, 1));
-    }
-
-    // Deduplicate by URL
-    articles = articles.filter((a, i, self) => a.url && self.findIndex(b => b.url === a.url) === i).slice(0, 5);
-
-    if (!articles.length) return res.status(500).json({ error: "No articles found from any source" });
-
-    // Annotate with Claude
-    const annotatePrompt = `You are a loan operations analyst preparing a panelist for an AI in loan operations conference.
-
-Topic: "${topic}"
-
-Articles:
-${articles.map((a, i) => `${i + 1}. ${a.headline}\n${a.description || "(no description)"}`).join("\n\n")}
-
-Return ONLY a valid JSON array with exactly ${articles.length} objects in the same order — no markdown, no backticks:
-[{
-  "summary": "A clear, succinct summary of the article. Let the content determine the length — could be one sentence or a short paragraph. No filler words. No repetition. Just what the article says and why it matters to loan operations.",
-  "relevance": "one short phrase connecting this to the panel topic",
-  "tag": "one of: AI & Automation | Market Movement | Regulation | Technology | Operations"
-}]`;
-
-    try {
-      const cr = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 600,
-          messages: [{ role: "user", content: annotatePrompt }],
-        }),
-      });
-
-      const cd = await cr.json();
-      const ctext = cd.content?.filter(b => b.type === "text").map(b => b.text).join("").trim();
-      const annotations = JSON.parse(ctext.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim());
-
-      const annotated = articles.map((a, i) => ({
-        ...a,
-        summary: annotations[i]?.summary || a.description || "",
-        relevance: annotations[i]?.relevance || "Relevant to loan ops automation",
-        tag: annotations[i]?.tag || "Technology",
-      }));
-
-      return res.status(200).json({ articles: annotated, pulse: null });
-    } catch {
-      // Return unannotated if Claude annotation fails
-      return res.status(200).json({
-        articles: articles.map(a => ({ ...a, relevance: "Relevant to loan ops", tag: "Technology" })),
-        pulse: null
-      });
-    }
-  }
-
-  return res.status(400).json({ error: "Invalid request type" });
+function getWeek(){
+  const diff = new Date("2026-05-05") - new Date();
+  return Math.max(1,Math.min(8,9-Math.ceil(diff/(7*24*60*60*1000))));
 }
+function getDaysLeft(){
+  const a=new Date("2026-05-05");a.setHours(0,0,0,0);
+  const b=new Date();b.setHours(0,0,0,0);
+  return Math.max(0,Math.round((a-b)/864e5));
+}
+function dateStr(){ return new Date().toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"}); }
+function dayName(){ return new Date().toLocaleDateString("en-US",{weekday:"long"}); }
+function timeAgo(iso){
+  if(!iso) return "";
+  const mins = Math.round((Date.now()-new Date(iso))/60000);
+  if(mins<60) return `${mins}m ago`;
+  if(mins<1440) return `${Math.round(mins/60)}h ago`;
+  return `${Math.round(mins/1440)}d ago`;
+}
+
+// ── API helpers ──────────────────────────────────────────────
+async function askClaude(system, user) {
+  const res = await fetch("/api/chat", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      type:"claude",
+      body:{
+        model:"claude-sonnet-4-20250514",
+        max_tokens:1200,
+        system,
+        messages:[{role:"user",content:user}]
+      }
+    })
+  });
+  if(!res.ok) throw new Error("HTTP error "+res.status);
+  const data = await res.json();
+  if(data.debug) throw new Error("API debug: "+JSON.stringify(data.debug));
+  if(data.error) throw new Error(data.error);
+  const text = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+  if(!text) throw new Error("Empty response from Claude");
+  return JSON.parse(text.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim());
+}
+
+async function fetchNews(topic) {
+  const res = await fetch("/api/chat", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ type:"news", topic })
+  });
+  if(!res.ok) throw new Error("News API error "+res.status);
+  const data = await res.json();
+  if(data.error) throw new Error(data.error);
+  return data.articles;
+}
+
+async function annotateNews(articles, topic) {
+  const sys = `You are a loan operations analyst. Given a list of news articles, return a JSON array annotating each with a relevance phrase and a tag.
+Respond ONLY with a valid JSON array. No markdown. No explanation.
+[{"relevance":"one phrase connecting to loan ops panel","tag":"one of: AI & Automation | Market Movement | Regulation | Technology | Operations"}]`;
+  const user = `Panel topic: "${topic}"\n\nArticles:\n${articles.map((a,i)=>`${i+1}. ${a.headline}\n${a.description}`).join("\n\n")}\n\nReturn a JSON array with exactly ${articles.length} objects, one per article, in the same order.`;
+  return await askClaude(sys, user);
+}
+
+// ── Prompts ──────────────────────────────────────────────────
+const BRIEF_SYS = `You are a conference prep coach for a panelist at an AI in loan operations conference.
+The panelist works in syndicated loan operations, knows LoanIQ, NELI, loan processing systems, but is not deeply expert in AI.
+Respond ONLY with valid JSON. No markdown. No backticks. Just the raw JSON object.
+{
+  "headline":"punchy insight title max 10 words",
+  "hook":"one sentence why this matters for a loan ops panelist",
+  "concept_title":"name of the core concept",
+  "concept_explanation":"2-3 plain English sentences",
+  "analogy":"one everyday analogy that makes it click",
+  "app_title":"How This Shows Up in Loan Ops",
+  "app_example":"specific realistic scenario referencing SOFR notices trade confirms amendments fee calcs 2-3 sentences",
+  "panel_line":"one sharp confident sentence to say on stage",
+  "stat_figure":"one relevant industry stat or figure",
+  "stat_context":"one sentence why it matters",
+  "reflection":"one question to deepen thinking during the day"
+}`;
+
+// ── UI Components ────────────────────────────────────────────
+function Spinner({label}){
+  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:48,background:"white",borderRadius:12,border:"1px solid #e8eaf0"}}>
+    <div style={{width:36,height:36,border:"3px solid #e8eaf0",borderTop:"3px solid #0f3460",borderRadius:"50%",animation:"spin 0.8s linear infinite",marginBottom:14}}/>
+    <div style={{fontSize:14,color:"#666"}}>{label||"Loading…"}</div>
+  </div>;
+}
+
+function Card({accent,icon,title,children}){
+  return <div style={{background:"white",borderRadius:12,padding:16,marginBottom:14,border:"1px solid #e8eaf0",borderTop:`3px solid ${accent}`}}>
+    <div style={{fontSize:11,fontWeight:700,color:accent,letterSpacing:1,marginBottom:10,textTransform:"uppercase"}}>{icon} {title}</div>
+    {children}
+  </div>;
+}
+
+function NavBtn({label,active,onClick}){
+  return <button onClick={onClick} style={{background:active?"rgba(233,69,96,0.9)":"rgba(255,255,255,0.1)",border:"none",borderRadius:20,padding:"5px 14px",color:"white",fontSize:12,cursor:"pointer",fontWeight:active?600:400}}>{label}</button>;
+}
+
+function TabBtn({label,active,loading,onClick}){
+  return <button onClick={onClick} style={{flex:1,background:active?"#1a1a2e":"transparent",color:active?"white":"#666",border:"none",borderRadius:8,padding:"9px 0",fontSize:13,cursor:"pointer",fontWeight:active?600:400,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+    {label}
+    {loading&&<span style={{width:7,height:7,borderRadius:"50%",background:"#e94560",display:"inline-block"}}/>}
+  </button>;
+}
+
+function BriefView({d}){
+  const ps={fontSize:13,color:"#444",lineHeight:1.7,margin:0};
+  return <div>
+    <div style={{background:"linear-gradient(135deg,#1a1a2e,#0f3460)",color:"white",borderRadius:12,padding:20,marginBottom:14}}>
+      <div style={{fontSize:11,opacity:0.6,marginBottom:6}}>{d.icon} {d.date}</div>
+      <div style={{fontSize:18,fontWeight:700,lineHeight:1.3,marginBottom:10}}>{d.headline}</div>
+      <div style={{fontSize:13,opacity:0.85,lineHeight:1.6,background:"rgba(255,255,255,0.08)",borderRadius:8,padding:"10px 12px"}}>{d.hook}</div>
+    </div>
+    <Card accent="#e94560" icon="🧠" title={d.concept_title}>
+      <p style={ps}>{d.concept_explanation}</p>
+      <div style={{background:"#fff8e1",borderLeft:"3px solid #f39c12",borderRadius:"0 8px 8px 0",padding:"10px 14px",marginTop:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#f39c12",marginBottom:4}}>💡 ANALOGY</div>
+        <div style={{fontSize:13,color:"#555",lineHeight:1.6}}>{d.analogy}</div>
+      </div>
+    </Card>
+    <Card accent="#0f3460" icon="🏦" title={d.app_title}>
+      <p style={ps}>{d.app_example}</p>
+    </Card>
+    <Card accent="#27ae60" icon="📊" title="Industry Snapshot">
+      <div style={{fontSize:22,fontWeight:800,color:"#27ae60",marginBottom:6}}>{d.stat_figure}</div>
+      <p style={ps}>{d.stat_context}</p>
+    </Card>
+    <div style={{background:"#1a1a2e",borderRadius:12,padding:18,marginBottom:14}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#e94560",letterSpacing:1,marginBottom:8}}>🎤 YOUR PANEL LINE</div>
+      <div style={{fontSize:15,color:"white",fontStyle:"italic",lineHeight:1.6,borderLeft:"3px solid #e94560",paddingLeft:14}}>"{d.panel_line}"</div>
+    </div>
+    <div style={{background:"#f0f4ff",border:"1px solid #d0d8ff",borderRadius:12,padding:16}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#5c6bc0",letterSpacing:1,marginBottom:8}}>🤔 THINK ABOUT THIS TODAY</div>
+      <div style={{fontSize:13,color:"#333",lineHeight:1.7}}>{d.reflection}</div>
+    </div>
+  </div>;
+}
+
+function NewsView({items, onRefresh, loading}){
+  const ps={fontSize:13,color:"#444",lineHeight:1.7,margin:0};
+  return <div>
+    {items.map((item,i)=>(
+      <div key={i} style={{background:"white",borderRadius:12,padding:16,marginBottom:12,border:"1px solid #e8eaf0"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:10}}>
+          <div style={{fontSize:14,fontWeight:700,lineHeight:1.4,flex:1}}>{item.headline}</div>
+          <span style={{background:TAG_COLORS[item.tag]||"#666",color:"white",fontSize:10,borderRadius:20,padding:"3px 8px",whiteSpace:"nowrap",flexShrink:0,fontWeight:600}}>{item.tag}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <span style={{fontSize:11,color:"#999"}}>📰 {item.source}</span>
+          {item.publishedAt && <span style={{fontSize:11,color:"#bbb"}}>· {timeAgo(item.publishedAt)}</span>}
+        </div>
+        {(item.summary || item.description) && (
+          <p style={{...ps, marginBottom:10}}>{item.summary || item.description}</p>
+        )}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:8}}>
+          <div style={{background:"#f0f7ff",borderRadius:8,padding:"7px 10px",borderLeft:"3px solid #0f3460",flex:1}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#0f3460"}}>Panel relevance: </span>
+            <span style={{fontSize:11,color:"#555"}}>{item.relevance}</span>
+          </div>
+          {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:"white",background:"#0f3460",borderRadius:8,padding:"7px 12px",textDecoration:"none",whiteSpace:"nowrap",fontWeight:600}}>Read →</a>}
+        </div>
+      </div>
+    ))}
+    <button onClick={onRefresh} disabled={loading} style={{width:"100%",background:"white",color:"#0f3460",border:"1px solid #0f3460",borderRadius:10,padding:"12px 0",fontSize:13,cursor:"pointer",fontWeight:600,opacity:loading?0.5:1,marginTop:4}}>
+      {loading?"Refreshing…":"Refresh News"}
+    </button>
+  </div>;
+}
+
+// ── Main App ─────────────────────────────────────────────────
+function App(){
+  const [view,setView]=useState("home");
+  const [tab,setTab]=useState("brief");
+  const [topic,setTopic]=useState(null);
+  const [brief,setBrief]=useState(null);
+  const [newsItems,setNewsItems]=useState(null);
+  const [loadBrief,setLoadBrief]=useState(false);
+  const [loadNews,setLoadNews]=useState(false);
+  const [errBrief,setErrBrief]=useState(null);
+  const [errNews,setErrNews]=useState(null);
+  const [saved,setSaved]=useState(()=>{ try{return JSON.parse(localStorage.getItem("lsta_v3")||"[]")}catch(e){return[]} });
+
+  const week=getWeek(), plan=WEEK_PLAN[Math.min(week-1,7)], days=getDaysLeft();
+
+  async function loadBriefFn(t){
+    setLoadBrief(true); setErrBrief(null); setBrief(null);
+    try{
+      const d = await askClaude(BRIEF_SYS,`Topic: ${t.label}\nWeek: ${week} of 8\nDay: ${dayName()}\nDate: ${dateStr()}`);
+      setBrief({...d,icon:t.icon,date:dateStr()});
+    }catch(e){ setErrBrief("Error: " + e.message); }
+    setLoadBrief(false);
+  }
+
+  async function loadNewsFn(t){
+    setLoadNews(true); setErrNews(null); setNewsItems(null);
+    try{
+      const res = await fetch("/api/chat", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ type:"news", topic: t.label })
+      });
+      if(!res.ok) throw new Error("API error "+res.status);
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      if(!data.articles?.length) throw new Error("No articles found");
+      setNewsItems({ items: data.articles, pulse: data.pulse });
+    }catch(e){ setErrNews("Could not load live news: "+e.message); }
+    setLoadNews(false);
+  }
+
+  function generate(t){
+    setTopic(t); setBrief(null); setNewsItems(null);
+    setView("digest"); setTab("brief");
+    loadBriefFn(t);
+    loadNewsFn(t);
+  }
+
+  function saveCurrent(){
+    if(!brief) return;
+    const entry={brief,newsItems,topicLabel:topic.label,icon:topic.icon,date:dateStr(),savedAt:new Date().toISOString()};
+    const updated=[entry,...saved.slice(0,9)];
+    setSaved(updated);
+    try{localStorage.setItem("lsta_v3",JSON.stringify(updated))}catch(e){}
+    alert("Brief saved!");
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f5f6fa"}}>
+      {/* HEADER */}
+      <div style={{background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 60%,#0f3460 100%)",color:"white",padding:"20px 24px 16px"}}>
+        <div style={{maxWidth:680,margin:"0 auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontSize:11,letterSpacing:2,opacity:0.6,textTransform:"uppercase",marginBottom:4}}>AI in Loan Operations · Daily Prep</div>
+              <div style={{fontSize:20,fontWeight:700}}>Smarter Ops Digest</div>
+              <div style={{fontSize:12,opacity:0.7,marginTop:4}}>AI Transforming Loan Workflows</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:28,fontWeight:800,color:"#e94560"}}>{days}</div>
+              <div style={{fontSize:11,opacity:0.7}}>days of prep</div>
+              <div style={{fontSize:11,opacity:0.6,marginTop:2}}>Week {week} of 8</div>
+            </div>
+          </div>
+          <div style={{marginTop:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,opacity:0.7,marginBottom:4}}>
+              <span>Week {week} of 8 · {plan.focus}</span>
+              <span>{Math.round((week/8)*100)}% through prep</span>
+            </div>
+            <div style={{background:"rgba(255,255,255,0.15)",borderRadius:4,height:5}}>
+              <div style={{background:"#e94560",height:5,borderRadius:4,width:`${(week/8)*100}%`}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,marginTop:14}}>
+            <NavBtn label="Today"       active={view==="home"}    onClick={()=>setView("home")}/>
+            <NavBtn label="8-Week Plan" active={view==="plan"}    onClick={()=>setView("plan")}/>
+            <NavBtn label="Saved"       active={view==="history"} onClick={()=>setView("history")}/>
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:680,margin:"0 auto",padding:"20px 16px"}}>
+
+        {/* HOME */}
+        {view==="home"&&<div>
+          <div style={{background:"white",borderRadius:12,padding:16,marginBottom:16,border:"1px solid #e8eaf0"}}>
+            <div style={{fontSize:12,color:"#666",marginBottom:8}}>📅 {dayName()} · {plan.focus} Week</div>
+            <div style={{fontSize:14,color:"#333",lineHeight:1.5}}>{plan.desc} — Pick a topic for your brief + live news.</div>
+          </div>
+          <div style={{fontSize:12,fontWeight:600,color:"#666",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Choose Today's Topic</div>
+          <div style={{display:"grid",gap:10}}>
+            {TOPICS.map(t=>(
+              <button key={t.id} onClick={()=>generate(t)} style={{background:"white",color:"#1a1a2e",border:"1px solid #e0e2eb",borderRadius:10,padding:"14px 16px",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",gap:12,boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+                <span style={{fontSize:22}}>{t.icon}</span>
+                <div>
+                  <div style={{fontSize:14,fontWeight:600}}>{t.label}</div>
+                  <div style={{fontSize:11,opacity:0.6,marginTop:2}}>Brief + live news →</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>}
+
+        {/* DIGEST */}
+        {view==="digest"&&<div>
+          <button onClick={()=>setView("home")} style={{background:"none",border:"none",color:"#0f3460",fontSize:13,cursor:"pointer",marginBottom:14,padding:0}}>← Back</button>
+          <div style={{display:"flex",background:"white",borderRadius:10,padding:4,border:"1px solid #e8eaf0",marginBottom:16,gap:4}}>
+            <TabBtn label="📚 Today's Brief" active={tab==="brief"} loading={loadBrief} onClick={()=>setTab("brief")}/>
+            <TabBtn label="📰 Live News"      active={tab==="news"}  loading={loadNews}  onClick={()=>setTab("news")}/>
+          </div>
+
+          {tab==="brief"&&<div>
+            {loadBrief&&<Spinner label="Generating your prep brief…"/>}
+            {errBrief&&<div style={{background:"#fff0f0",border:"1px solid #ffcccc",borderRadius:10,padding:16,color:"#c0392b",fontSize:13,marginBottom:12}}>{errBrief}</div>}
+            {brief&&!loadBrief&&<div>
+              <BriefView d={brief}/>
+              <div style={{display:"flex",gap:10,marginTop:14}}>
+                <button onClick={saveCurrent} style={{flex:1,background:"#0f3460",color:"white",border:"none",borderRadius:10,padding:"12px 0",fontSize:13,cursor:"pointer",fontWeight:600}}>Save Brief</button>
+                <button onClick={()=>loadBriefFn(topic)} style={{flex:1,background:"white",color:"#0f3460",border:"1px solid #0f3460",borderRadius:10,padding:"12px 0",fontSize:13,cursor:"pointer",fontWeight:600}}>Regenerate</button>
+              </div>
+            </div>}
+          </div>}
+
+          {tab==="news"&&<div>
+            {loadNews&&<Spinner label="Fetching live news…"/>}
+            {errNews&&<div style={{background:"#fff0f0",border:"1px solid #ffcccc",borderRadius:10,padding:16,color:"#c0392b",fontSize:13,marginBottom:12}}>{errNews}</div>}
+          {newsItems&&!loadNews&&<div>
+            {newsItems.pulse && (
+              <div style={{background:"linear-gradient(135deg,#0f3460,#1a1a2e)",color:"white",borderRadius:12,padding:16,marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+                <div style={{fontSize:26}}>📡</div>
+                <div>
+                  <div style={{fontSize:11,opacity:0.6,letterSpacing:1,marginBottom:4}}>MARKET PULSE · {new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                  <div style={{fontSize:13,lineHeight:1.6,opacity:0.9}}>{newsItems.pulse}</div>
+                </div>
+              </div>
+            )}
+            <NewsView items={newsItems.items} loading={loadNews} onRefresh={()=>loadNewsFn(topic)}/>
+          </div>}
+          </div>}
+        </div>}
+
+        {/* PLAN */}
+        {view==="plan"&&<div>
+          <div style={{fontSize:14,color:"#666",marginBottom:16,lineHeight:1.6}}>Your 8-week roadmap to panel confidence.</div>
+          {WEEK_PLAN.map((w,i)=>(
+            <div key={i} style={{background:w.week===week?"#1a1a2e":"white",color:w.week===week?"white":"#1a1a2e",border:w.week===week?"none":"1px solid #e8eaf0",borderRadius:10,padding:"14px 16px",marginBottom:10,display:"flex",alignItems:"center",gap:14}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:w.week===week?"#e94560":"#f0f2fa",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:w.week===week?"white":"#666",flexShrink:0}}>W{w.week}</div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14}}>{w.focus}{w.week===week&&" ← You are here"}</div>
+                <div style={{fontSize:12,opacity:0.7,marginTop:2}}>{w.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>}
+
+        {/* SAVED */}
+        {view==="history"&&<div>
+          {saved.length===0
+            ?<div style={{background:"white",borderRadius:12,padding:32,textAlign:"center",border:"1px solid #e8eaf0",color:"#999"}}>
+               <div style={{fontSize:32,marginBottom:10}}>📚</div>
+               <div style={{fontSize:14}}>No saved briefs yet.</div>
+             </div>
+            :saved.map((d,i)=>(
+               <div key={i} style={{background:"white",borderRadius:12,padding:16,marginBottom:12,border:"1px solid #e8eaf0"}}>
+                 <div style={{fontSize:11,color:"#999",marginBottom:4}}>{d.icon} {d.date}</div>
+                 <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>{d.brief?.headline}</div>
+                 <div style={{fontSize:12,color:"#e94560",fontWeight:600,marginBottom:6}}>Panel line:</div>
+                 <div style={{fontSize:13,color:"#555",fontStyle:"italic",borderLeft:"3px solid #e94560",paddingLeft:10}}>"{d.brief?.panel_line}"</div>
+               </div>
+             ))
+          }
+        </div>}
+
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
