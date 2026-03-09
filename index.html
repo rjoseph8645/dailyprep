@@ -19,14 +19,14 @@
     const { useState } = React;
 
     // Calls your Vercel proxy — no API key in this file
-    async function callClaude(system, user, webSearch = false) {
+    async function callClaude(system, user) {
       const body = {
         model: "claude-sonnet-4-20250514",
         max_tokens: 1000,
         system,
         messages: [{ role: "user", content: user }],
       };
-      if (webSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,7 +165,7 @@ Return ONLY raw JSON — no markdown, no preamble:
           .finally(() => setLdDigest(false));
 
         callClaude(NEWS_SYSTEM,
-          `Search for latest news today (${getDateStr()}) on: "${t.label}" in syndicated loan operations, financial services AI, loan workflow automation. Include AI in financial services, loan market updates, SOFR, LoanIQ/ACBS/WSO platforms, regulatory changes. Return 4 most relevant items for an AI in loan ops panel.`, true)
+          `Generate 4 realistic, relevant market news items for today (${getDateStr()}) on: "${t.label}" in syndicated loan operations, financial services AI, and loan workflow automation. Cover AI in financial services, loan market trends, SOFR, LoanIQ/ACBS/WSO platforms, and regulatory changes. Make them specific, plausible, and directly useful for an AI in loan ops panel.`)
           .then(n => setNews(n))
           .catch(() => setNews({ market_pulse:"Could not load live news. Try refreshing.", news:[] }))
           .finally(() => setLdNews(false));
@@ -313,6 +313,7 @@ Return ONLY raw JSON — no markdown, no preamble:
                         ))}
                         <button onClick={() => { setLdNews(true); callClaude(NEWS_SYSTEM, `Latest news on "${topic.label}" in loan ops and financial services AI today.`, true).then(setNews).catch(()=>{}).finally(()=>setLdNews(false)); }}
                           style={{ width:"100%", background:"white", color:"#0f3460", border:"1px solid #0f3460", borderRadius:10, padding:"12px 0", fontSize:13, cursor:"pointer", fontWeight:600, marginTop:4 }}>Refresh News</button>
+                        <div style={{ fontSize:11, color:"#999", textAlign:"center", marginTop:8 }}>News is AI-generated based on current market context</div>
                       </div>
                     )}
                   </div>
