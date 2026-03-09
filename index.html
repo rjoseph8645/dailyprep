@@ -101,6 +101,7 @@ Respond ONLY with valid JSON. No markdown. No explanation. No backticks. Just th
     {
       "headline":"news headline",
       "source":"publication name",
+      "url":"full URL to the actual article (must be a real, working URL)",
       "summary":"2 sentences what happened and why it matters to loan ops",
       "relevance":"one phrase connecting to the panel topic",
       "tag":"one of: AI & Automation | Market Movement | Regulation | Technology | Operations"
@@ -182,7 +183,11 @@ function NewsView({n, onRefresh, loading}){
           <div style={{fontSize:14,fontWeight:700,lineHeight:1.4,flex:1}}>{item.headline}</div>
           <span style={{background:TAG_COLORS[item.tag]||"#666",color:"white",fontSize:10,borderRadius:20,padding:"3px 8px",whiteSpace:"nowrap",flexShrink:0,fontWeight:600}}>{item.tag}</span>
         </div>
-        <div style={{fontSize:11,color:"#999",marginBottom:8}}>📰 {item.source}</div>
+        <div style={{fontSize:11,color:"#999",marginBottom:8}}>
+          📰 {item.url
+            ? <a href={item.url} target="_blank" rel="noopener noreferrer" style={{color:"#0f3460",textDecoration:"underline"}}>{item.source}</a>
+            : item.source}
+        </div>
         <p style={{...ps,marginBottom:10}}>{item.summary}</p>
         <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 10px",borderLeft:"3px solid #0f3460"}}>
           <span style={{fontSize:11,fontWeight:700,color:"#0f3460"}}>Panel relevance: </span>
@@ -252,14 +257,14 @@ function App(){
         <div style={{maxWidth:680,margin:"0 auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontSize:11,letterSpacing:2,opacity:0.6,textTransform:"uppercase",marginBottom:4}}>LSTA 2026 · Conference Prep</div>
+              <div style={{fontSize:11,letterSpacing:2,opacity:0.6,textTransform:"uppercase",marginBottom:4}}>AI in Loan Operations · Daily Prep</div>
               <div style={{fontSize:20,fontWeight:700}}>Smarter Ops Digest</div>
               <div style={{fontSize:12,opacity:0.7,marginTop:4}}>AI Transforming Loan Workflows</div>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:28,fontWeight:800,color:"#e94560"}}>{days}</div>
-              <div style={{fontSize:11,opacity:0.7}}>days to go</div>
-              <div style={{fontSize:11,opacity:0.6,marginTop:2}}>May 5 · Philadelphia</div>
+              <div style={{fontSize:11,opacity:0.7}}>days of prep</div>
+              <div style={{fontSize:11,opacity:0.6,marginTop:2}}>Week {week} of 8</div>
             </div>
           </div>
           <div style={{marginTop:14}}>
