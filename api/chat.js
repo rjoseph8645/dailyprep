@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   // ── Guardian News call ───────────────────────────────────────
   if (type === "news") {
     const guardianKey = process.env.GUARDIAN_API_KEY;
-    if (!guardianKey) return res.status(500).json({ error: "GUARDIAN_API_KEY not set" });
+    if (!guardianKey) return res.status(500).json({ error: "GUARDIAN_API_KEY not set in environment variables" });
 
     const QUERIES = {
       "Notice Parsing & Document Abstraction":
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       const data = await r.json();
 
       if (data.response?.status !== "ok") {
-        return res.status(500).json({ error: "Guardian API error: " + JSON.stringify(data) });
+        return res.status(500).json({ error: "Guardian API error: " + JSON.stringify(data.response || data) });
       }
 
       const articles = (data.response?.results || [])
