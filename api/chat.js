@@ -61,9 +61,8 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
         "lsta.org","akingump.com"
       ];
 
-      const gq = encodeURIComponent(GDELT_Q[topic] || '"AI financial services" OR "loan automation"');
-      const df = DOMAINS.map(d => `domainis:${d}`).join(" OR ");
-      const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gq} (${encodeURIComponent(df)})&mode=artlist&maxrecords=6&format=json&timespan=7d&sourcelang=english`;
+      const rawQuery = GDELT_Q[topic] || '"AI financial services" OR "loan automation"';
+      const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(rawQuery)}&mode=artlist&maxrecords=6&format=json&timespan=7d&sourcelang=english`;
       const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(GOOGLE_Q[topic] || "AI loan operations fintech")}&hl=en-US&gl=US&ceid=US:en`;
       const akinUrl = "https://www.akingump.com/en/rss?type=1062568";
 
@@ -84,9 +83,18 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
       }
 
       let articles = [];
-      const [gdeltRes, googleRes, akinRes] = await Promise.allSettled([
-        fetch(gdeltUrl).then(r => r.json()),
-        fetch(googleUrl).then(r => r.text()),
+      const rssUrl = `https://feeds.finextra.com/finextra-news.xml`;
+
+      const [gdeltRes, rssRes, akinRes] = await Promise.allSettled([
+        fetch(gdeltUrl).then(async r => {
+          const text = await r.text();
+          // GDELT returns plain-text errors — guard before JSON.parse
+          if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+            throw new Error("GDELT non-JSON: " + text.slice(0, 120));
+          }
+          return JSON.parse(text);
+        }),
+        fetch(rssUrl).then(r => r.text()),
         fetch(akinUrl).then(r => r.text()),
       ]);
 
@@ -96,8 +104,8 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
           url: a.url, description: "", publishedAt: a.seendate,
         })));
       }
-      if (googleRes.status === "fulfilled" && articles.length < 4) {
-        articles.push(...parseRSS(googleRes.value, null, 4 - articles.length));
+      if (rssRes.status === "fulfilled" && articles.length < 4) {
+        articles.push(...parseRSS(rssRes.value, "Finextra", 4 - articles.length));
       }
       if (akinRes.status === "fulfilled" && articles.length < 5) {
         articles.push(...parseRSS(akinRes.value, "Akin", 1));
@@ -106,8 +114,8 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
       articles = articles.filter((a, i, s) => a.url && s.findIndex(b => b.url === a.url) === i).slice(0, 5);
       if (!articles.length) {
         const gdeltErr = gdeltRes.status === "rejected" ? gdeltRes.reason?.message : (gdeltRes.value?.error || "no results");
-        const googleErr = googleRes.status === "rejected" ? googleRes.reason?.message : "no results";
-        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | Google: ${googleErr}` });
+        const rssErr   = rssRes.status   === "rejected" ? rssRes.reason?.message   : "no results";
+        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | RSS: ${rssErr}` });
       }
 
       const prompt = `You are a loan operations analyst preparing a panelist for a conference.
