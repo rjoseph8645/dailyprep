@@ -19,7 +19,10 @@ export default async function handler(req, res) {
           "Content-Type": "application/json",
           "x-api-key": anthropicKey,
           "anthropic-version": "2023-06-01",
-        },
+          } catch (topErr) {
+      return res.status(500).json({ error: "News handler crashed: " + topErr.message });
+    }
+  },
         body: JSON.stringify(body),
       });
       const data = await r.json();
@@ -32,6 +35,7 @@ export default async function handler(req, res) {
 
   // ── News: GDELT + Google News + Akin ─────────────────────────
   if (type === "news") {
+    try {
     const PANEL = `Panel: "SMARTER OPERATIONS: HOW AI IS TRANSFORMING LOAN WORKFLOWS"
 Themes: loan notice parsing, covenant tracking, cash application, exception management, document abstraction, interest and fee validation, trade break analysis, workflow integration, governance, LoanIQ, ACBS, WSO, NELI, STP.`;
 
