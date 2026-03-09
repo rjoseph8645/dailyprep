@@ -33,25 +33,26 @@ export default async function handler(req, res) {
   // ── News: GDELT + Google News + Akin ─────────────────────────
   if (type === "news") {
     try {
-      const PANEL = `Panel: "SMARTER OPERATIONS: HOW AI IS TRANSFORMING LOAN WORKFLOWS"
-Themes: loan notice parsing, covenant tracking, cash application, exception management, document abstraction, interest and fee validation, trade break analysis, workflow integration, governance, LoanIQ, ACBS, WSO, NELI, STP.`;
+      const akinUrl = "https://www.akingump.com/en/rss?type=1062568";
+
+      // ── News sources ──────────────────────────────────────────
 
       const GDELT_Q = {
-        "Notice Parsing & Document Abstraction": '("document automation" OR "loan notice" OR "OCR") fintech banking',
-        "Covenant Tracking & Monitoring": '("covenant monitoring" OR "loan compliance" OR "credit agreement") AI banking',
-        "Cash Application & Fee Validation": '("cash application" OR "payment automation" OR "fee validation" OR "loan reconciliation") banking',
-        "Trade Break Analysis & Exception Mgmt": '("trade break" OR "trade settlement" OR "syndicated loan" OR "exception management") finance',
-        "AI Governance & Implementation": '("AI governance" OR "responsible AI" OR "model risk") banking',
-        "Workflow Integration & Modernization": '("loan operations" OR "workflow automation" OR "STP") banking',
+        "Notice Parsing & Document Abstraction": '("document abstraction" OR "notice parsing" OR "loan notice automation" OR "OCR loan") ("syndicated loan" OR "loan operations" OR "LoanIQ" OR "ACBS")',
+        "Covenant Tracking & Monitoring": '("covenant monitoring" OR "covenant tracking" OR "covenant breach") ("syndicated loan" OR "credit agreement" OR "loan operations") AI',
+        "Cash Application & Fee Validation": '("cash application" OR "interest validation" OR "fee reconciliation" OR "payment matching") ("syndicated loan" OR "loan operations" OR "loan accounting")',
+        "Trade Break Analysis & Exception Mgmt": '("trade break" OR "settlement exception" OR "exception management" OR "predictive exception") ("syndicated loan" OR "loan operations" OR "trade settlement")',
+        "AI Governance & Implementation": '("AI governance" OR "model risk management" OR "AI controls" OR "responsible AI") ("loan operations" OR "syndicated lending" OR "financial services workflow")',
+        "Workflow Integration & Modernization": '("workflow automation" OR "STP" OR "straight-through processing" OR "loan workflow") ("LoanIQ" OR "ACBS" OR "WSO" OR "syndicated loan" OR "loan operations")',
       };
 
       const GOOGLE_Q = {
-        "Notice Parsing & Document Abstraction": "loan document automation notice parsing OCR fintech 2026",
-        "Covenant Tracking & Monitoring": "loan covenant monitoring automation AI banking 2026",
-        "Cash Application & Fee Validation": "cash application fee validation loan banking automation 2026",
-        "Trade Break Analysis & Exception Mgmt": "trade break settlement syndicated loan exception fintech 2026",
-        "AI Governance & Implementation": "AI governance model risk banking financial services 2026",
-        "Workflow Integration & Modernization": "loan operations STP workflow automation fintech banking 2026",
+        "Notice Parsing & Document Abstraction": "syndicated loan notice parsing document abstraction automation 2025 OR 2026",
+        "Covenant Tracking & Monitoring": "syndicated loan covenant monitoring automation AI 2025 OR 2026",
+        "Cash Application & Fee Validation": "syndicated loan cash application interest fee validation automation 2025 OR 2026",
+        "Trade Break Analysis & Exception Mgmt": "syndicated loan trade break exception management predictive AI 2025 OR 2026",
+        "AI Governance & Implementation": "AI governance controls loan operations syndicated lending implementation 2025 OR 2026",
+        "Workflow Integration & Modernization": "loan operations workflow automation STP LoanIQ ACBS modernization 2025 OR 2026",
       };
 
       const DOMAINS = [
@@ -127,19 +128,37 @@ Themes: loan notice parsing, covenant tracking, cash application, exception mana
         return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | ${feed1Src}: ${r1Err} | ${feed2Src}: ${r2Err}` });
       }
 
-      const prompt = `You are a loan operations analyst preparing a panelist for a conference.
+      const PANEL_CONTEXT = `CONFERENCE PANEL: "SMARTER OPERATIONS: HOW AI IS TRANSFORMING LOAN WORKFLOWS"
 
-${PANEL}
+The panel is specifically about practical AI implementation in syndicated loan operations. Core topics:
+- Parsing loan notices and abstracting structured data from documents
+- Automated covenant monitoring and breach detection in credit agreements
+- Cash application, interest/fee validation, and payment reconciliation
+- Predictive exception management and trade break resolution
+- Integration into existing systems: LoanIQ, ACBS, WSO, NELI
+- AI governance, controls, and auditability in loan ops workflows
+- Straight-through processing (STP) and modernization of manual loan processes
 
-Today's focus: "${topic}"
+The audience is senior loan operations professionals at banks and asset managers.`;
 
-For each article, write a clear succinct summary that connects the article to the panel themes. Let the content determine the length — one sentence to a short paragraph. No filler. No repetition.
+      const prompt = `You are a conference prep analyst helping a panelist at a syndicated loan operations conference.
+
+${PANEL_CONTEXT}
+
+Today's panel sub-topic: "${topic}"
+
+Below are news articles. For each one:
+1. Write a focused 1-3 sentence summary connecting the article DIRECTLY to the panel sub-topic. Be specific — name the mechanism (e.g. "notice parsing", "covenant breach detection", "fee reconciliation"). Skip generic AI hype.
+2. Write a tight relevance phrase (e.g. "Directly supports STP argument", "Validates exception mgmt ROI case").
+3. Assign the most accurate tag.
+
+If an article has only loose relevance, still summarize it but note the indirect connection honestly.
 
 Articles:
 ${articles.map((a, i) => `${i + 1}. ${a.headline}\n${a.description || "(headline only)"}`).join("\n\n")}
 
 Return ONLY a valid JSON array with exactly ${articles.length} objects — no markdown, no backticks:
-[{"summary":"...","relevance":"one short phrase","tag":"AI & Automation | Market Movement | Regulation | Technology | Operations"}]`;
+[{"summary":"...","relevance":"...","tag":"AI & Automation | Market Movement | Regulation | Technology | Operations"}]`;
 
       try {
         const cr = await fetch("https://api.anthropic.com/v1/messages", {
