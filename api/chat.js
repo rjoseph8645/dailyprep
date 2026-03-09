@@ -30,13 +30,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── News: GDELT + Google News + Akin ─────────────────────────
+  // ── News: GDELT + RSS feeds + Akin ───────────────────────────
   if (type === "news") {
     try {
-      const akinUrl = "https://www.akingump.com/en/rss?type=1062568";
-
-      // ── News sources ──────────────────────────────────────────
-
       const GDELT_Q = {
         "Notice Parsing & Document Abstraction": '("document abstraction" OR "notice parsing" OR "loan notice automation" OR "OCR loan") ("syndicated loan" OR "loan operations" OR "LoanIQ" OR "ACBS")',
         "Covenant Tracking & Monitoring": '("covenant monitoring" OR "covenant tracking" OR "covenant breach") ("syndicated loan" OR "credit agreement" OR "loan operations") AI',
@@ -55,17 +51,14 @@ export default async function handler(req, res) {
         "Workflow Integration & Modernization": "loan operations workflow automation STP LoanIQ ACBS modernization 2025 OR 2026",
       };
 
-      const DOMAINS = [
-        "reuters.com","ft.com","bloomberg.com","wsj.com",
-        "americanbanker.com","finextra.com","pymnts.com",
-        "risk.net","bankingtech.com","fintechfutures.com",
-        "lsta.org","akingump.com"
-      ];
+      const akinUrl  = "https://www.akingump.com/en/rss?type=1062568";
+      const feed1Url = "https://www.pymnts.com/feed/";
+      const feed1Src = "PYMNTS";
+      const feed2Url = "https://www.bankingtech.com/feed/";
+      const feed2Src = "Banking Tech";
 
-      const rawQuery = GDELT_Q[topic] || '"AI financial services" OR "loan automation"';
+      const rawQuery = GDELT_Q[topic] || '("AI financial services" OR "loan automation")';
       const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(rawQuery)}&mode=artlist&maxrecords=6&format=json&timespan=7d&sourcelang=english`;
-      const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(GOOGLE_Q[topic] || "AI loan operations fintech")}&hl=en-US&gl=US&ceid=US:en`;
-      const akinUrl = "https://www.akingump.com/en/rss?type=1062568";
 
       function parseRSS(xml, source, max) {
         const items = [];
@@ -84,17 +77,6 @@ export default async function handler(req, res) {
       }
 
       let articles = [];
-      // Reuters and FT block server fetches; use feeds known to work from Vercel
-      const RSS_FEEDS = [
-        { url: "https://www.pymnts.com/feed/",                      source: "PYMNTS"   },
-        { url: "https://fintechmagazine.com/rss",                   source: "Fintech Magazine" },
-        { url: "https://www.bankingtech.com/feed/",                 source: "Banking Tech"     },
-        { url: "https://www.fintechfutures.com/feed/",              source: "Fintech Futures"  },
-      ];
-      // Pick first two to stay within Vercel timeout
-      const [feed1Url, feed2Url] = RSS_FEEDS.map(f => f.url);
-      const [feed1Src, feed2Src] = RSS_FEEDS.map(f => f.source);
-
       const [gdeltRes, rss1Res, rss2Res, akinRes] = await Promise.allSettled([
         fetch(gdeltUrl).then(async r => {
           const text = await r.text();
@@ -121,11 +103,13 @@ export default async function handler(req, res) {
         articles.push(...parseRSS(akinRes.value, "Akin", 1));
 
       articles = articles.filter((a, i, s) => a.url && s.findIndex(b => b.url === a.url) === i).slice(0, 5);
+
       if (!articles.length) {
         const gdeltErr = gdeltRes.status === "rejected" ? gdeltRes.reason?.message : (gdeltRes.value?.error || "no results");
-        const r1Err = rss1Res.status === "rejected" ? rss1Res.reason?.message : "no results";
-        const r2Err = rss2Res.status === "rejected" ? rss2Res.reason?.message : "no results";
-        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | ${feed1Src}: ${r1Err} | ${feed2Src}: ${r2Err}` });
+        const r1Err    = rss1Res.status  === "rejected" ? rss1Res.reason?.message  : "no results";
+        const r2Err    = rss2Res.status  === "rejected" ? rss2Res.reason?.message  : "no results";
+        const akinErr  = akinRes.status  === "rejected" ? akinRes.reason?.message  : "no results";
+        return res.status(500).json({ error: `No articles found. GDELT: ${gdeltErr} | ${feed1Src}: ${r1Err} | ${feed2Src}: ${r2Err} | Akin: ${akinErr}` });
       }
 
       const PANEL_CONTEXT = `CONFERENCE PANEL: "SMARTER OPERATIONS: HOW AI IS TRANSFORMING LOAN WORKFLOWS"
